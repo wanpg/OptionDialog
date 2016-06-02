@@ -4,9 +4,11 @@ import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build;
 import android.support.v4.view.MotionEventCompat;
+import android.support.v4.view.VelocityTrackerCompat;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
@@ -24,6 +26,7 @@ import android.view.animation.TranslateAnimation;
 import android.widget.AbsListView;
 import android.widget.Adapter;
 import android.widget.RelativeLayout;
+import android.widget.Scroller;
 
 /**
  * Created by wangjinpeng on 16/3/14.
@@ -83,8 +86,11 @@ class OptionContainerView extends RelativeLayout {
     };
 
     /** 最小滑动速率，超过这个速率就可以翻页 **/
-    private static final int mSlideVelocity = 2500;
+    private static final int mSlideVelocity = 600;
     protected int mMaximumVelocity;
+    private boolean isBeingDragged = false;
+
+    private Scroller scroller;
 
     public void updateContainer(int gravity, boolean dragable, int animResEnter, int animResExit, View shadowView, boolean isTranslucentWork, OptionContainerChangeListener listener){
         mGravity = gravity;
@@ -108,6 +114,7 @@ class OptionContainerView extends RelativeLayout {
         final ViewConfiguration configuration = ViewConfiguration.get(context);
         mTouchSlop = configuration.getScaledTouchSlop();
         mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
+        scroller = new Scroller(context, sInterpolator);
     }
 
     @Override
@@ -117,6 +124,55 @@ class OptionContainerView extends RelativeLayout {
         if(view != null){
             view.clearAnimation();
         }
+    }
+
+    private void determineDrag(MotionEvent event){
+        final int activePointerId = mActivePointerId;
+        final int pointerIndex = getPointerIndex(event, activePointerId);
+        if (activePointerId == INVALID_POINTER)
+            return;
+        final float x = MotionEventCompat.getX(event, pointerIndex);
+        final float deltaY = mDragDownY - x;
+        final float absDeltaY = Math.abs(deltaY);
+        isBeingDragged = false;
+        if(absDeltaY > mTouchSlop) {
+            if (mGravity == Gravity.TOP && deltaY > 0) {
+                isBeingDragged = true;
+            }else if (mGravity == Gravity.BOTTOM && deltaY < 0) {
+                isBeingDragged = true;
+            }
+        }
+        if(isBeingDragged){
+            //此处记录开始的一些参数
+        }
+    }
+
+    private static final int INVALID_POINTER = -1;
+    /**
+     * 我的活动的触摸点的id
+     */
+    private int mActivePointerId = -1;
+    private int getPointerIndex(MotionEvent ev, int id) {
+        int activePointerIndex = MotionEventCompat.findPointerIndex(ev, id);
+        if (activePointerIndex == -1)
+            mActivePointerId = INVALID_POINTER;
+        return activePointerIndex;
+    }
+
+    public void recordStartPos(MotionEvent ev){
+        // 记录开始坐标的index 和  ID
+        int index = MotionEventCompat.getActionIndex(ev);
+        mActivePointerId = MotionEventCompat.getPointerId(ev, index);
+        mDragDownY = mDragLastY = ev.getY();
+    }
+
+    private void finishScroll(){
+
+    }
+
+    @Override
+    public void computeScroll() {
+        super.computeScroll();
     }
 
     @Override
@@ -131,27 +187,26 @@ class OptionContainerView extends RelativeLayout {
             return false;
         }
         final int action = MotionEventCompat.getActionMasked(ev);
-        final float curY = ev.getY();
-        final float curX = ev.getX();
         if(action == MotionEvent.ACTION_DOWN){
-            mDragDownY = mDragLastY = curY;
+            recordStartPos(ev);
         }else if(action == MotionEvent.ACTION_MOVE){
-            final float deltaY = mDragDownY - curY;
-            final float absDeltaY = Math.abs(deltaY);
-            if(absDeltaY > mTouchSlop) {
-                if (mGravity == Gravity.TOP && deltaY > 0) {
-                    return true;
-                }
-                if (mGravity == Gravity.BOTTOM && deltaY < 0) {
-                    return true;
-                }
+            if(mActivePointerId == INVALID_POINTER){
+                recordStartPos(ev);
             }
+            determineDrag(ev);
         }
-        if (mVelocityTracker == null) {
-            mVelocityTracker = VelocityTracker.obtain();
+
+        recordStartPos(ev);
+        return isBeingDragged;
+    }
+
+    private void recordMotionToTracker(MotionEvent event){
+        if(isBeingDragged) {
+            if (mVelocityTracker == null) {
+                mVelocityTracker = VelocityTracker.obtain();
+            }
+            mVelocityTracker.addMovement(event);
         }
-        mVelocityTracker.addMovement(ev);
-        return false;
     }
 
     @Override
@@ -159,6 +214,9 @@ class OptionContainerView extends RelativeLayout {
         if(!mDragable){
             return true;
         }
+
+        recordMotionToTracker(event);
+
         final int action = MotionEventCompat.getActionMasked(event);
         float curY = event.getY();
         switch (action){
@@ -166,49 +224,90 @@ class OptionContainerView extends RelativeLayout {
                 mDragDownY = curY;
                 break;
             case MotionEvent.ACTION_MOVE:
-                final int oldScrollY = this.getScrollY();
-                final float deltaY = mDragLastY - curY;
-                mDragLastY = curY;
-                int newScrollY = (int) (oldScrollY + deltaY);
-                if(mGravity == Gravity.TOP){
-                    if(newScrollY < 0){
-                        newScrollY = 0;
-                    }
-                }else{
-                    if(newScrollY > 0){
-                        newScrollY = 0;
-                    }
+                if(!isBeingDragged){
+                    determineDrag(event);
                 }
-                this.scrollTo(0, newScrollY);
+                if(isBeingDragged){
+                    final int oldScrollY = this.getScrollY();
+                    final float deltaY = mDragLastY - curY;
+                    mDragLastY = curY;
+                    int newScrollY = (int) (oldScrollY + deltaY);
+                    if(mGravity == Gravity.TOP){
+                        if(newScrollY < 0){
+                            newScrollY = 0;
+                        }
+                    }else{
+                        if(newScrollY > 0){
+                            newScrollY = 0;
+                        }
+                    }
+                    this.scrollTo(0, newScrollY);
+                }
                 break;
             case MotionEvent.ACTION_UP:
-                final int scrollY = Math.abs(this.getScrollY());
-                final int totalHeight = getHeight();
-                scrollTo(0, 0);
-                if(scrollY > totalHeight){
-//                    dismissImmediate(true);
-                    if(mListener != null){
-                        mListener.exitOver();
+                if(isBeingDragged){
+                    final int scrollY = Math.abs(this.getScrollY());
+                    final int totalHeight = getHeight();
+                    if(scrollY > totalHeight){
+                        if(mListener != null){
+                            mListener.exitOver();
+                        }
+                    }else {
+                        final boolean enter;
+                        final VelocityTracker velocityTracker = mVelocityTracker;
+                        velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
+                        int initialVelocity = (int) VelocityTrackerCompat.getXVelocity(velocityTracker, mActivePointerId);
+                        Log.d("wanpg", "onTouchEvent---action-up--initialVelocity:" + initialVelocity);
+                        final int activePointerIndex = getPointerIndex(event, mActivePointerId);
+                        if (mActivePointerId == INVALID_POINTER) {
+                            //回到最初状态
+                            enter = true;
+                        } else {
+                            final float y = MotionEventCompat.getY(event, activePointerIndex);
+                            final int totalDelta = (int) (y - mDragDownY);
+                            //根据滑动的距离判断是否进入上一页或者下一页
+                            if (initialVelocity > mSlideVelocity) {
+                                //大于这个速率  继续完成动画
+                                enter = true;
+                            } else if (initialVelocity < -mSlideVelocity) {
+                                //回到最初状态
+                                enter = false;
+                            } else {
+                                int screenHeight = getScreenDisplay().heightPixels;
+                                int absDelta = Math.abs(totalDelta);
+                                if (absDelta > screenHeight / 6 || absDelta > totalHeight / 3) {
+                                    //结束此dialog,继续完成动画
+                                    enter = false;
+                                } else {
+                                    //回到最初状态
+                                    enter = true;
+                                }
+                            }
+                        }
+                        smoothScroll(enter, initialVelocity);
                     }
-                }else {
-                    final boolean enter;
-                    final float percent = ((float) scrollY) / ((float) totalHeight);
-                    int screenHeight = getScreenDisplay().heightPixels;
-                    float leftPercent = 0f;
-                    if(scrollY > screenHeight / 6 || scrollY > totalHeight / 3 ){
-                        //结束此dialog
-                        enter = false;
-                        leftPercent = 1f - percent;
-                    }else{
-                        //回到最初
-                        enter = true;
-                        leftPercent = percent;
-                    }
-                    doAnimationByProgress(enter, leftPercent);
                 }
                 break;
         }
         return true;
+    }
+
+    private void smoothScroll(boolean enter, int velocity){
+        final int scrollY = Math.abs(this.getScrollY());
+        final int totalHeight = getHeight();
+        scrollTo(0, 0);
+        final float percent = ((float) scrollY) / ((float) totalHeight);
+        float leftPercent = 0f;
+        if(enter){
+            //回到最初
+            enter = true;
+            leftPercent = percent;
+        }else{
+            //结束此dialog
+            enter = false;
+            leftPercent = 1f - percent;
+        }
+        doAnimationByProgress(enter, leftPercent);
     }
 
     /**
