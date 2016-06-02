@@ -3,11 +3,13 @@ package com.snowpear.optiondialog;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build;
+import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
@@ -17,6 +19,7 @@ import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 import android.view.animation.BaseInterpolator;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.Interpolator;
 import android.view.animation.TranslateAnimation;
 import android.widget.AbsListView;
 import android.widget.Adapter;
@@ -70,6 +73,19 @@ class OptionContainerView extends RelativeLayout {
     private View mShadowView;
     private boolean isTranslucentWork;
 
+    protected VelocityTracker mVelocityTracker;
+
+    private static final Interpolator sInterpolator = new Interpolator() {
+        public float getInterpolation(float t) {
+            t -= 1.0f;
+            return t * t * t * t * t + 1.0f;
+        }
+    };
+
+    /** 最小滑动速率，超过这个速率就可以翻页 **/
+    private static final int mSlideVelocity = 2500;
+    protected int mMaximumVelocity;
+
     public void updateContainer(int gravity, boolean dragable, int animResEnter, int animResExit, View shadowView, boolean isTranslucentWork, OptionContainerChangeListener listener){
         mGravity = gravity;
         mDragable = dragable;
@@ -91,6 +107,7 @@ class OptionContainerView extends RelativeLayout {
     private void init(Context context){
         final ViewConfiguration configuration = ViewConfiguration.get(context);
         mTouchSlop = configuration.getScaledTouchSlop();
+        mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
     }
 
     @Override
@@ -113,9 +130,9 @@ class OptionContainerView extends RelativeLayout {
         if(mGravity == Gravity.BOTTOM && canChildScrollUp()){
             return false;
         }
+        final int action = MotionEventCompat.getActionMasked(ev);
         final float curY = ev.getY();
         final float curX = ev.getX();
-        final int action = ev.getAction();
         if(action == MotionEvent.ACTION_DOWN){
             mDragDownY = mDragLastY = curY;
         }else if(action == MotionEvent.ACTION_MOVE){
@@ -130,6 +147,10 @@ class OptionContainerView extends RelativeLayout {
                 }
             }
         }
+        if (mVelocityTracker == null) {
+            mVelocityTracker = VelocityTracker.obtain();
+        }
+        mVelocityTracker.addMovement(ev);
         return false;
     }
 
@@ -138,7 +159,7 @@ class OptionContainerView extends RelativeLayout {
         if(!mDragable){
             return true;
         }
-        final int action = event.getAction();
+        final int action = MotionEventCompat.getActionMasked(event);
         float curY = event.getY();
         switch (action){
             case MotionEvent.ACTION_DOWN:
