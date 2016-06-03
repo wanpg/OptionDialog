@@ -5,26 +5,19 @@ import android.content.Context;
 import android.os.Build;
 import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.VelocityTrackerCompat;
-import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
-import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.WindowManager;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
-import android.view.animation.BaseInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.Interpolator;
 import android.view.animation.TranslateAnimation;
-import android.widget.AbsListView;
-import android.widget.Adapter;
 import android.widget.RelativeLayout;
 import android.widget.Scroller;
 
@@ -59,9 +52,9 @@ class OptionContainerView extends RelativeLayout {
         void exitOver();
     }
 
-    private static long DEFAULT_ANIMATION_DUATION = 250;
+    private static int DEFAULT_ANIMATION_DUATION = 250;
 
-    private boolean mDragable;
+    private boolean mDraggable;
     private int mGravity;
 
     private float mDragDownY;
@@ -86,15 +79,24 @@ class OptionContainerView extends RelativeLayout {
     };
 
     /** 最小滑动速率，超过这个速率就可以翻页 **/
-    private static final int mSlideVelocity = 600;
+    private static final int mSlideVelocity = 200;
     protected int mMaximumVelocity;
     private boolean isBeingDragged = false;
 
     private Scroller scroller;
 
-    public void updateContainer(int gravity, boolean dragable, int animResEnter, int animResExit, View shadowView, boolean isTranslucentWork, OptionContainerChangeListener listener){
+    private static final int INVALID_POINTER = -1;
+    /**
+     * 我的活动的触摸点的id
+     */
+    private int mActivePointerId = -1;
+    private boolean isScrolling = false;
+    private boolean isScrollEnter = false;
+    private static final boolean USE_CACHE = true;
+
+    public void updateContainer(int gravity, boolean draggable, int animResEnter, int animResExit, View shadowView, boolean isTranslucentWork, OptionContainerChangeListener listener){
         mGravity = gravity;
-        mDragable = dragable;
+        mDraggable = draggable;
         mListener = listener;
         enterAnimationRes = animResEnter;
         exitAnimationRes = animResExit;
@@ -131,8 +133,8 @@ class OptionContainerView extends RelativeLayout {
         final int pointerIndex = getPointerIndex(event, activePointerId);
         if (activePointerId == INVALID_POINTER)
             return;
-        final float x = MotionEventCompat.getX(event, pointerIndex);
-        final float deltaY = mDragDownY - x;
+        final float y = MotionEventCompat.getY(event, pointerIndex);
+        final float deltaY = mDragDownY - y;
         final float absDeltaY = Math.abs(deltaY);
         isBeingDragged = false;
         if(absDeltaY > mTouchSlop) {
@@ -147,11 +149,6 @@ class OptionContainerView extends RelativeLayout {
         }
     }
 
-    private static final int INVALID_POINTER = -1;
-    /**
-     * 我的活动的触摸点的id
-     */
-    private int mActivePointerId = -1;
     private int getPointerIndex(MotionEvent ev, int id) {
         int activePointerIndex = MotionEventCompat.findPointerIndex(ev, id);
         if (activePointerIndex == -1)
@@ -167,23 +164,126 @@ class OptionContainerView extends RelativeLayout {
     }
 
     private void finishScroll(){
+        OptionUtils.debug("computeScroll---finish--A");
+        if (isScrolling) {
+            OptionUtils.debug("computeScroll---finish--B");
+            // Done with scroll, no longer want to cache view drawing.
+            setScrollingCacheEnabled(false);
+            scroller.abortAnimation();
+            int oldX = getScrollX();
+            int oldY = getScrollY();
+            int x = scroller.getCurrX();
+            int y = scroller.getCurrY();
+            if (oldX != x || oldY != y) {
+                scrollTo(x, y);
+            }
 
+            if(mListener != null){
+                if(isScrollEnter){
+                    mListener.enterOver();
+                    OptionUtils.debug("computeScroll---finish--C");
+                }else{
+                    mListener.exitOver();
+                    OptionUtils.debug("computeScroll---finish--D");
+                }
+            }
+        }
+        isScrolling = false;
     }
 
     @Override
     public void computeScroll() {
-        super.computeScroll();
+        if (!scroller.isFinished()) {
+            OptionUtils.debug("computeScroll---A");
+            if (scroller.computeScrollOffset()) {
+                int oldX = getScrollX();
+                int oldY = getScrollY();
+                int x = scroller.getCurrX();
+                int y = scroller.getCurrY();
+
+                if (oldX != x || oldY != y) {
+                    scrollTo(x, y);
+                    OptionUtils.debug("computeScroll---B");
+                }
+                OptionUtils.debug("computeScroll---C");
+                // Keep on drawing until the animation has finished.
+                postInvalidate();
+                return;
+            }
+        }
+        OptionUtils.debug("computeScroll---finish");
+        // Done with scroll, clean up state.
+        finishScroll();
+    }
+
+    private void smoothScroll(boolean enter, int velocity){
+        isScrollEnter = enter;
+        final int totalHeight = getMeasuredHeight();
+        int x = 0;
+        int y = 0;
+        if(enter){
+            //回到最初
+            x = 0;
+            y = 0;
+        }else{
+            //结束此dialog
+            x = 0;
+            y =((mGravity == Gravity.TOP) ? 1 : -1) * totalHeight;
+        }
+        OptionUtils.debug("smoothScroll---ISSCROLLERENTER----:" + isScrollEnter);
+        int sx = getScrollX();
+        int sy = getScrollY();
+
+        int dx = x - sx;
+        int dy = y - sy;
+
+        if (dx == 0 && dy == 0) {
+            OptionUtils.debug("smoothScroll---dx and dy == 0 ");
+            finishScroll();
+            return;
+        }
+
+        setScrollingCacheEnabled(true);
+        isScrolling = true;
+
+        final int halfWidth = totalHeight / 2;
+        final float distanceRatio = Math.min(1f, 1.0f * Math.abs(dy) / totalHeight);
+        final float distance = halfWidth + halfWidth * OptionUtils.distanceInfluenceForSnapDuration(distanceRatio);
+
+        int duration = 0;
+        velocity = Math.abs(velocity);
+        if (velocity > 0) {
+            duration = 4 * Math.round(500 * Math.abs(distance / velocity));
+        } else {
+            duration = DEFAULT_ANIMATION_DUATION;
+        }
+        duration = Math.min(duration, DEFAULT_ANIMATION_DUATION);
+        OptionUtils.debug("smoothScroll---sy:" + sy + "--dy:" + dy);
+        scroller.startScroll(sx, sy, dx, dy, duration);
+        postInvalidate();//此处一定要刷新
+    }
+
+    private void setScrollingCacheEnabled(boolean enabled) {
+        if (USE_CACHE) {
+            final int size = getChildCount();
+            for (int i = 0; i < size; ++i) {
+                final View child = getChildAt(i);
+                if (child.getVisibility() != GONE) {
+                    child.setDrawingCacheEnabled(!enabled);
+                }
+            }
+        }
     }
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if(!mDragable){
+        if(!mDraggable){
             return false;
         }
-        if(mGravity == Gravity.TOP && canChildScrollDown()){
+        if(mGravity == Gravity.TOP && OptionUtils.canChildScrollDown(this)){
             return false;
         }
-        if(mGravity == Gravity.BOTTOM && canChildScrollUp()){
+        if(mGravity == Gravity.BOTTOM && OptionUtils.canChildScrollUp(this)){
             return false;
         }
         final int action = MotionEventCompat.getActionMasked(ev);
@@ -211,12 +311,10 @@ class OptionContainerView extends RelativeLayout {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if(!mDragable){
+        if(!mDraggable){
             return true;
         }
-
         recordMotionToTracker(event);
-
         final int action = MotionEventCompat.getActionMasked(event);
         float curY = event.getY();
         switch (action){
@@ -252,36 +350,33 @@ class OptionContainerView extends RelativeLayout {
                         if(mListener != null){
                             mListener.exitOver();
                         }
+                        OptionUtils.debug("onTouchEvent---action-up----A");
                     }else {
                         final boolean enter;
                         final VelocityTracker velocityTracker = mVelocityTracker;
                         velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
                         int initialVelocity = (int) VelocityTrackerCompat.getXVelocity(velocityTracker, mActivePointerId);
-                        Log.d("wanpg", "onTouchEvent---action-up--initialVelocity:" + initialVelocity);
+                        OptionUtils.debug("onTouchEvent---action-up--initialVelocity:" + initialVelocity);
                         final int activePointerIndex = getPointerIndex(event, mActivePointerId);
                         if (mActivePointerId == INVALID_POINTER) {
                             //回到最初状态
                             enter = true;
+                            OptionUtils.debug("onTouchEvent---action-up----B");
                         } else {
                             final float y = MotionEventCompat.getY(event, activePointerIndex);
                             final int totalDelta = (int) (y - mDragDownY);
                             //根据滑动的距离判断是否进入上一页或者下一页
                             if (initialVelocity > mSlideVelocity) {
                                 //大于这个速率  继续完成动画
-                                enter = true;
+                                enter = (mGravity == Gravity.BOTTOM);
+                                OptionUtils.debug("onTouchEvent---action-up----C");
                             } else if (initialVelocity < -mSlideVelocity) {
                                 //回到最初状态
-                                enter = false;
+                                enter = (mGravity == Gravity.TOP);
+                                OptionUtils.debug("onTouchEvent---action-up----D");
                             } else {
-                                int screenHeight = getScreenDisplay().heightPixels;
-                                int absDelta = Math.abs(totalDelta);
-                                if (absDelta > screenHeight / 6 || absDelta > totalHeight / 3) {
-                                    //结束此dialog,继续完成动画
-                                    enter = false;
-                                } else {
-                                    //回到最初状态
-                                    enter = true;
-                                }
+                                enter = (Math.abs(totalDelta) < getMeasuredHeight() / 3);
+                                OptionUtils.debug("onTouchEvent---action-up----E");
                             }
                         }
                         smoothScroll(enter, initialVelocity);
@@ -290,78 +385,6 @@ class OptionContainerView extends RelativeLayout {
                 break;
         }
         return true;
-    }
-
-    private void smoothScroll(boolean enter, int velocity){
-        final int scrollY = Math.abs(this.getScrollY());
-        final int totalHeight = getHeight();
-        scrollTo(0, 0);
-        final float percent = ((float) scrollY) / ((float) totalHeight);
-        float leftPercent = 0f;
-        if(enter){
-            //回到最初
-            enter = true;
-            leftPercent = percent;
-        }else{
-            //结束此dialog
-            enter = false;
-            leftPercent = 1f - percent;
-        }
-        doAnimationByProgress(enter, leftPercent);
-    }
-
-    /**
-     * @return Whether it is possible for the child view of this layout to
-     *         scroll up. Override this if the child view is a custom view.
-     */
-    private boolean canChildScrollUp() {
-        View mTarget = getChildAt(0);
-        if(mTarget != null) {
-            if (Build.VERSION.SDK_INT < 14) {
-                if (mTarget instanceof AbsListView) {
-                    final AbsListView absListView = (AbsListView) mTarget;
-                    return absListView.getChildCount() > 0
-                            && (absListView.getFirstVisiblePosition() > 0 || absListView.getChildAt(0)
-                            .getTop() < absListView.getPaddingTop());
-                } else {
-                    return ViewCompat.canScrollVertically(mTarget, -1) || mTarget.getScrollY() > 0;
-                }
-            } else {
-                return ViewCompat.canScrollVertically(mTarget, -1);
-            }
-        }
-        return false;
-    }
-
-    public boolean canChildScrollDown() {
-        View mListView = getChildAt(0);
-        if(mListView != null) {
-            if (Build.VERSION.SDK_INT < 14) {
-                if (mListView instanceof AbsListView) {
-                    int childCount = ((AbsListView) mListView).getChildCount();
-                    if (childCount <= 0) {
-                        return false;
-                    }
-                    Adapter adapter = ((AbsListView) mListView).getAdapter();
-                    if (adapter == null || adapter.getCount() <= 0) {
-                        return false;
-                    }
-
-                    if (((AbsListView) mListView).getLastVisiblePosition() < adapter.getCount() - 1) {
-                        return true;
-                    }
-
-                    int lastBottom = ((AbsListView) mListView).getChildAt(childCount - 1).getBottom();
-                    int listBottom = mListView.getBottom();
-                    return (lastBottom - listBottom) > mListView.getPaddingBottom();
-                } else {
-                    return ViewCompat.canScrollVertically(mListView, 1) || mListView.getScrollY() > 0;
-                }
-            } else {
-                return ViewCompat.canScrollVertically(mListView, 1);
-            }
-        }
-        return false;
     }
 
     /**
@@ -398,7 +421,7 @@ class OptionContainerView extends RelativeLayout {
             view.startAnimation(animation);
             if(isTranslucentWork) {
                 AlphaAnimation alphaAnimation = new AlphaAnimation(enter ? 0.3f : 1, enter ? 1 : 0.3f);
-                alphaAnimation.setInterpolator(enter ? new DecelerateInterpolator() : new AccelerateInterpolator());
+                alphaAnimation.setInterpolator(sInterpolator);
                 alphaAnimation.setDuration(animation.getDuration());
                 alphaAnimation.setAnimationListener(new Animation.AnimationListener() {
                     @Override
@@ -421,75 +444,6 @@ class OptionContainerView extends RelativeLayout {
         }else{
             runnable.run();
         }
-    }
-
-    private void doAnimationByProgress(final boolean enter, float leftPercent){
-        View view = getChildAt(0);
-        if(view == null){
-            return;
-        }
-        view.clearAnimation();
-        mShadowView.clearAnimation();
-        Animation animation = getAnimationByProgress(enter, leftPercent);
-        mShadowView.setVisibility(isTranslucentWork ? View.VISIBLE : View.GONE);
-        animation.setAnimationListener(new Animation.AnimationListener() {
-            @Override
-            public void onAnimationStart(Animation animation) {
-            }
-
-            @Override
-            public void onAnimationEnd(Animation animation) {
-                mShadowView.setVisibility(enter ? VISIBLE : GONE);
-                if (!enter) {
-                    if(mListener != null){
-                        mListener.exitOver();
-                    }
-//                    dismissImmediate(true);
-                }
-            }
-
-            @Override
-            public void onAnimationRepeat(Animation animation) {
-
-            }
-        });
-        view.startAnimation(animation);
-    }
-
-    private Animation getAnimationByProgress(boolean enter, float leftPercent){
-        float fromY, toY;
-        TranslateAnimation animation;
-        BaseInterpolator interpolator;
-        if(enter){
-            if(mGravity == Gravity.TOP){
-                fromY = -1f * leftPercent;
-                toY = 0f;
-            } else {
-                fromY = 1f * leftPercent;
-                toY = 0f;
-            }
-            interpolator = new DecelerateInterpolator();
-        }else{
-            if(mGravity == Gravity.TOP){
-                fromY = leftPercent - 1f;
-                toY = -1f;
-            } else {
-                fromY = 1f - leftPercent;
-                toY = 1f;
-            }
-            interpolator = new AccelerateInterpolator();
-        }
-        animation = new TranslateAnimation(Animation.RELATIVE_TO_PARENT, 0, Animation.RELATIVE_TO_PARENT, 0, Animation.RELATIVE_TO_PARENT, fromY, Animation.RELATIVE_TO_PARENT, toY);
-        animation.setInterpolator(interpolator);
-        animation.setDuration((long) (Math.abs(toY - fromY) * DEFAULT_ANIMATION_DUATION));
-        return animation;
-    }
-
-    private DisplayMetrics getScreenDisplay(){
-        DisplayMetrics dm = new DisplayMetrics();
-        WindowManager windowManager = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-        windowManager.getDefaultDisplay().getMetrics(dm);
-        return dm;
     }
 
     private Animation getAnimation(boolean enter){
