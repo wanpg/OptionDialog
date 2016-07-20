@@ -118,7 +118,6 @@ public class OptionDialog extends RelativeLayout {
 
     private OptionDialogManagerImpl mOptionDialogManagerImpl;
     private View mContentView;
-    private View mShadowView;
     private OptionSystemConfig optionSystemConfig;
 
     private String tag = null;
@@ -142,6 +141,10 @@ public class OptionDialog extends RelativeLayout {
      * @param context
      */
     private void initView(Context context) {
+        boolean isInit = false;
+        if(isInit){
+            return;
+        }
         if(context != null && context instanceof Activity) {
             optionSystemConfig = new OptionSystemConfig((Activity) context);
         }
@@ -178,11 +181,8 @@ public class OptionDialog extends RelativeLayout {
         return tag;
     }
 
-    public boolean isVisible(){
-        if(isShown()){
-            return true;
-        }
-        return visible;
+    public boolean isVisible() {
+        return isShown() || visible;
     }
 
     /**
@@ -262,7 +262,7 @@ public class OptionDialog extends RelativeLayout {
     public void draw(Canvas canvas) {
         try{
             super.draw(canvas);
-        }catch(NullPointerException e){
+        }catch(java.lang.NullPointerException e){
             //you can log if you want to you can leave your friends behind
             //Log.e("mytag","MyCustomView::draw():"+e);
         }
@@ -390,9 +390,9 @@ public class OptionDialog extends RelativeLayout {
 
         //创建容器
         mOptionContainer = new OptionContainerView(getContext());
-        mShadowView = new View(getContext());
-        LayoutParams lpShadow = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        LayoutParams lpContent = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        View mShadowView = new View(getContext());
+        RelativeLayout.LayoutParams lpShadow = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        RelativeLayout.LayoutParams lpContent = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         //创建content
         if(mContentView == null){
             mContentView = createContent(LayoutInflater.from(getContext()));
@@ -450,7 +450,7 @@ public class OptionDialog extends RelativeLayout {
         mOptionContainer.addView(mContentView);
         mOptionContainer.updateContainer(mGravity, mDragable, enterAnimationRes, exitAnimationRes, mShadowView, isTranslucentWork, mOptionContainerListener);
         if(!mOutsideTouchable) {
-            setOnClickListener(new OnClickListener() {
+            setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     if (mCancelable) {

@@ -20,7 +20,7 @@ import java.lang.reflect.Method;
  * Class which describes system bar sizing and other characteristics for the current
  * device configuration.
  */
-class OptionSystemConfig {
+public class OptionSystemConfig {
 
     private static final String STATUS_BAR_HEIGHT_RES_NAME = "status_bar_height";
     private static final String NAV_BAR_HEIGHT_RES_NAME = "navigation_bar_height";
@@ -38,7 +38,7 @@ class OptionSystemConfig {
 
     private String sNavBarOverride = null;
 
-    OptionSystemConfig(Activity activity) {
+    public OptionSystemConfig(Activity activity) {
 
         // Android allows a system property to override the presence of the navigation bar.
         // Used by the emulator.
@@ -209,11 +209,11 @@ class OptionSystemConfig {
      * @param context
      * @return
      */
-    static float[] getDisplaySize(Context context){
+    public static float[] getDisplaySize(Context context){
         WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         Display dis = wm.getDefaultDisplay();
         float[] f = new float[2];
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1){
+        if(android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1){
             Point p = new Point();
             dis.getRealSize(p);
             f[0] = p.x;

@@ -9,9 +9,17 @@ import java.util.ArrayList;
  */
 public class OptionDialogManager {
 
-    ArrayList<OptionDialog> optionDialogList = new ArrayList<>();
+    ArrayList<OptionDialog> optionDialogList;
+
+    /**
+     * 私有此构造方法，避免外部使用
+     */
+    private OptionDialogManager(){
+
+    }
 
     public OptionDialogManager(Activity activity){
+        optionDialogList = new ArrayList<>();
     }
 
     public void putDialog(String tag, OptionDialog dialog){
@@ -45,5 +53,9 @@ public class OptionDialogManager {
     }
 
     private void trim(){
+    }
+
+    public void removeAll(){
+        optionDialogList.clear();
     }
 }
